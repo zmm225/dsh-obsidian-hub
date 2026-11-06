@@ -117,6 +117,81 @@ rt = {
 
 这样用户只要启用 Local REST API 社区插件即可，无需把密钥抄进任何 harness 配置。
 
+## 多仓库切换（v1.1，2026-11-06，FROZEN）
+
+面板从「设置」移到**左侧标签栏**，并支持在运行时换仓库 —— 换仓后 8 个工具立刻作用在新仓库上。
+
+### 状态文件
+
+`<homedir>/.dsh/obsidian-hub/state.json`（Windows 形如 `C:\Users\<你>\.dsh\obsidian-hub\state.json`）：
+
+```json
+{ "version": 1, "vaultPath": "D:\\obsidian\\obsidian", "updatedAt": "2026-11-06T04:08:00.000Z" }
+```
+
+- 读失败 / JSON 损坏 / 字段类型不对 → 当作「没有状态」，**绝不抛**。
+- 写：先写 `state.json.tmp` 再 replace 到目标（Windows 上 rename 到已存在文件会失败，需先 unlink 或重试）。
+
+### 活动仓库优先级
+
+1. `state.json` 的 `vaultPath` —— 面板里切换过 → `vault.source: 'state'`
+2. 配置 `vaultPath` → `'config'`
+3. `obsidian.json` 自动探测当前打开的 vault → `'auto'`
+
+### `rt` 新增成员
+
+```js
+rt = {
+  ...既有成员,
+  async setRoot(rootOrNull),  // 校验目录存在 → 写状态文件（null = 删除状态）→ 清 vault/index/rest 缓存
+                              // 返回 { root: string, source: 'state'|'config'|'auto' }
+  async activeRootSource(),   // → 'state' | 'config' | 'auto'（会先解析，未解析时调用也可以）
+}
+```
+
+切换后必须清掉 `vaultPromise` / `indexPromise` / `restClient` / `indexDirty`，否则工具还在读旧仓库。
+
+### HTTP 接口（`lib/status-route.js`）
+
+`GET /obsidian-hub/status` —— 在原 payload 上新增：
+
+| 字段 | 说明 |
+|---|---|
+| `vaultSource` | `'state' \| 'config' \| 'auto'` |
+| `allowVaultSwitch` | 来自配置 `allowVaultSwitch` |
+| `vaults` | `[{ path, name, open, exists, isVault, current }]` —— 候选来自 `obsidian.json` 注册表 + 当前仓库；`isVault` = 该目录下有 `.obsidian` |
+
+`POST /obsidian-hub/vault` —— body `{"path":"<绝对路径>"}` 或 `{"path":null}`（= 回到 config/auto）：
+
+| 情况 | 响应 |
+|---|---|
+| 成功 | 200 + 与 GET 相同的新 payload（切换后的状态） |
+| 路径不存在 / 不是目录 / 切换被禁 | 400 + `{"ok":false,"error":"..."}`（禁用时错误信息要点名 `allowVaultSwitch`） |
+| 非 POST | 405 |
+
+### 客户端（`client.js`）
+
+两个注册，id 必须一致，否则侧边栏点了打不开面板：
+
+```js
+ctx.slots.inject('sidebar.panellist', () => ctx.slots.register(
+  { name: 'sidebar.panellist', id: 'obsidian-hub', order: 35, label: () => t('panel.title') }, PanelIcon))
+ctx.slots.inject('main', () => ctx.slots.register(
+  { name: 'main', key: 'obsidian-hub' }, PanelView))
+```
+
+- `PanelIcon` 只接收 `{ size, active }`（`SidebarPanelIconOwnerProps`），画一个随主题色的图标。
+- `PanelView` 负责：当前仓库 + 来源徽标、候选仓库列表（点击切换）、手输路径 + 切换按钮、
+  刷新、笔记数 / 索引 / REST 状态、按标题/路径快速筛选。
+- 切换走 `POST /obsidian-hub/vault`，成功后用返回的 payload 直接刷新（不额外再 GET）。
+- 错误要显示出来（路径不存在等），不能静默。
+
+### 配置新增
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `allowVaultSwitch` | `true` | 面板里是否允许换仓库；`false` 时 POST 返回 400 |
+
 ## `lib/vault.js` 契约（vault-core 实现）
 
 ```js

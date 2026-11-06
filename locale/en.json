@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Obsidian Hub",
-    "description": "Connects a local Obsidian vault to DeepSeek Harness: read, write, batch operations, fast BM25/regex/tag/link queries, filesystem operations, and live Obsidian actions through the Local REST API."
+    "description": "Connects a local Obsidian vault to DeepSeek Harness: read, write, batch operations, fast BM25/regex/tag/link queries, filesystem operations, and live Obsidian actions through the Local REST API. Ships a left-sidebar panel with a runtime vault switcher."
   },
   "panel": {
     "title": "Obsidian Hub",
@@ -12,7 +12,6 @@
       "loading": "Loading…"
     },
     "fields": {
-      "vault": "Vault",
       "notes": "Notes",
       "index": "Index",
       "rest": "Local REST API"
@@ -27,6 +26,32 @@
       "restNotConfigured": "Not configured",
       "restUnknown": "Unknown",
       "unknown": "—"
+    },
+    "vault": {
+      "current": "Current vault",
+      "noVault": "No vault detected yet",
+      "source": {
+        "state": "Set in panel",
+        "config": "From config",
+        "auto": "Auto-detected"
+      },
+      "badge": {
+        "current": "Current",
+        "open": "Open in Obsidian",
+        "vault": "Vault folder",
+        "missing": "Missing"
+      },
+      "listTitle": "Vaults",
+      "listEmpty": "No registered vaults found. Enter an absolute path below.",
+      "pathPlaceholder": "Absolute path, e.g. D:\\Notes\\MyVault",
+      "switch": "Switch",
+      "reset": "Back to auto/config",
+      "switching": "Switching…",
+      "switchedTo": "Now using {name}",
+      "switchError": "Switch failed: {error}",
+      "pathRequired": "Switch failed: enter an absolute path first",
+      "disabledHint": "Vault switching is disabled in the plugin config (allowVaultSwitch: false).",
+      "rowHint": "Switch to {path}"
     },
     "search": {
       "label": "Quick filter",

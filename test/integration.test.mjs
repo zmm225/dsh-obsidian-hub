@@ -93,6 +93,12 @@ try {
 const fixture = createFixtureVault()
 const paths = fixturePaths()
 
+// v1.1: the runtime reads a persisted vault selection from
+// <homedir>/.dsh/obsidian-hub/state.json. Redirect that at the per-process
+// fixture base so this suite never reads or writes the user's real state.
+const ORIGINAL_STATE_DIR = process.env.DSH_OBSIDIAN_HUB_STATE_DIR
+process.env.DSH_OBSIDIAN_HUB_STATE_DIR = path.join(paths.base, 'state')
+
 function configFor(vaultPath, overrides = {}) {
   return {
     vaultPath,
@@ -393,6 +399,12 @@ process.on('exit', () => {
   }
   try {
     cleanupAll()
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (ORIGINAL_STATE_DIR === undefined) delete process.env.DSH_OBSIDIAN_HUB_STATE_DIR
+    else process.env.DSH_OBSIDIAN_HUB_STATE_DIR = ORIGINAL_STATE_DIR
   } catch {
     /* ignore */
   }
@@ -2849,15 +2861,16 @@ test('DEFECT-CHECK: auto-discovered REST credentials must propagate to user-faci
     })
     const rt = runtimeModule.createRuntime(config)
 
-    // (a) status route payload
-    let handler
+    // (a) status route payload. v1.1 registers TWO routes (/status and /vault),
+    // so collect handlers by path instead of keeping the last registered one.
+    const handlers = new Map()
     const routeCtx = {
       inject(deps, callback) {
         if (!deps.includes('webServer')) return
         callback({
           webServer: {
             register(spec) {
-              handler = spec.handler
+              handlers.set(spec.path, spec.handler)
               return () => {}
             },
           },
@@ -2869,7 +2882,8 @@ test('DEFECT-CHECK: auto-discovered REST credentials must propagate to user-faci
       },
     }
     statusRouteModule.registerStatusRoute(routeCtx, rt)
-    assert.equal(typeof handler, 'function', 'status route handler must register')
+    const statusHandler = handlers.get('/obsidian-hub/status')
+    assert.equal(typeof statusHandler, 'function', 'status route handler must register')
     const chunks = []
     const response = {
       statusCode: 0,
@@ -2881,7 +2895,7 @@ test('DEFECT-CHECK: auto-discovered REST credentials must propagate to user-faci
         chunks.push(body)
       },
     }
-    await handler({}, response)
+    await statusHandler({ method: 'GET' }, response)
     const payload = JSON.parse(chunks.join(''))
     assert.equal(payload.rest.configured, true)
     assert.equal(payload.rest.reachable, true)

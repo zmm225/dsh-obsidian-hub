@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Obsidian 知识库中枢",
-    "description": "把本地 Obsidian 知识库接入 DeepSeek Harness：读、写、批量操作、BM25/正则/标签/双链快速查询、文件系统操作，并通过 Local REST API 实时操作 Obsidian 应用。"
+    "description": "把本地 Obsidian 知识库接入 DeepSeek Harness：读、写、批量操作、BM25/正则/标签/双链快速查询、文件系统操作，并通过 Local REST API 实时操作 Obsidian 应用。左侧边栏提供面板与运行时换仓。"
   },
   "panel": {
     "title": "Obsidian 知识库中枢",
@@ -12,7 +12,6 @@
       "loading": "加载中…"
     },
     "fields": {
-      "vault": "知识库",
       "notes": "笔记",
       "index": "索引",
       "rest": "本地 REST API"
@@ -27,6 +26,32 @@
       "restNotConfigured": "未配置",
       "restUnknown": "未知",
       "unknown": "—"
+    },
+    "vault": {
+      "current": "当前仓库",
+      "noVault": "尚未检测到仓库",
+      "source": {
+        "state": "面板里选过",
+        "config": "配置指定",
+        "auto": "自动探测"
+      },
+      "badge": {
+        "current": "当前",
+        "open": "Obsidian 已打开",
+        "vault": "含 .obsidian",
+        "missing": "不存在"
+      },
+      "listTitle": "仓库列表",
+      "listEmpty": "没有已注册的仓库。可在下方输入绝对路径。",
+      "pathPlaceholder": "绝对路径，例如 D:\\笔记\\我的仓库",
+      "switch": "切换",
+      "reset": "回到自动/配置",
+      "switching": "切换中…",
+      "switchedTo": "已切换到 {name}",
+      "switchError": "切换失败：{error}",
+      "pathRequired": "切换失败：请先输入绝对路径",
+      "disabledHint": "配置里已禁用换仓（allowVaultSwitch: false）。",
+      "rowHint": "切换到 {path}"
     },
     "search": {
       "label": "快速筛选",

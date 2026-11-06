@@ -126,10 +126,13 @@ async function main() {
 
   await check('every definition carries normalized JSON Schema', () => assertSchemaShape(real.tools))
 
-  await check('status route registered at /obsidian-hub/status', () => {
-    if (real.routes.length !== 1) throw new Error(`expected 1 route, got ${real.routes.length}`)
-    if (real.routes[0].path !== '/obsidian-hub/status') throw new Error(`unexpected path ${real.routes[0].path}`)
-    return `${real.routes[0].path} (${real.routes[0].kind})`
+  await check('status + vault-switch routes registered', () => {
+    const paths = real.routes.map((route) => route.path).sort()
+    const expected = ['/obsidian-hub/status', '/obsidian-hub/vault']
+    if (JSON.stringify(paths) !== JSON.stringify(expected)) throw new Error(`routes: ${paths.join(', ')}`)
+    const status = real.routes.find((route) => route.path === '/obsidian-hub/status')
+    if (!status || status.kind !== 'exact') throw new Error('status route missing or not exact')
+    return paths.join(', ')
   })
 
   const statusTool = real.tools.get('obsidian_status')
@@ -181,7 +184,9 @@ async function main() {
         body = String(chunk)
       },
     }
-    await real.routes[0].handler({ method: 'GET' }, response)
+    const statusRoute = real.routes.find((route) => route.path === '/obsidian-hub/status')
+    if (!statusRoute) throw new Error('status route not registered')
+    await statusRoute.handler({ method: 'GET' }, response)
     if (statusCode !== 200) throw new Error(`status code ${statusCode}`)
     const payload = JSON.parse(body)
     if (typeof payload.ok !== 'boolean') throw new Error('missing ok')

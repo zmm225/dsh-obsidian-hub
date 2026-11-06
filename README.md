@@ -5,7 +5,23 @@
 - 安装后向 Agent 暴露 8 个 `obsidian_*` 工具
 - 主通道是**直接文件系统**：Obsidian 关着也能读写，批量操作快
 - 次通道是 **Local REST API** 社区插件：能驱动正在运行的 Obsidian
-- 附带一个 Web UI 面板：显示连接状态 + 笔记快速筛选
+- **左侧标签栏**有一个「Obsidian 知识库中枢」面板：连接状态、笔记筛选、**运行时一键换仓库**
+
+## 面板：换仓库
+
+点击左侧栏的 **◆ Obsidian 知识库中枢**，面板里可以：
+
+- 看到当前仓库路径、来源（`自动探测` / `配置指定` / `面板选择`）
+- 从 Obsidian 已知的仓库列表里点一行直接切换（标出「当前」「Obsidian 已打开」「含 .obsidian」）
+- 或手输任意绝对路径 → 切换
+- 「回到自动/配置」清掉手动选择
+
+**切换是全局生效的**：换完之后 8 个工具立刻作用在新仓库上（`obsidian_search` 的笔记数、
+`obsidian_read` 的内容都来自新仓库），不需要重启、不需要重装。选择会持久化到
+`~/.dsh/obsidian-hub/state.json`，重启 Harness 后仍然有效。
+
+优先级：**面板选择 > 配置 `vaultPath` > `obsidian.json` 自动探测**。
+不想让人随便换，就把配置 `allowVaultSwitch` 设成 `false`（面板会禁用并说明原因）。
 
 ---
 
@@ -129,6 +145,7 @@ bundle 层的 id 与 name 必须一致（`id: obsidian-hub` / `name: dsh-obsidia
 | `maxFileBytes` | `2097152` | 单文件读取上限 |
 | `defaultReadLimit` | `400` | `obsidian_read` 默认返回行数 |
 | `trashMode` | `trash` | `trash` = 移到 `<vault>/.trash/`；`delete` = 真删 |
+| `allowVaultSwitch` | `true` | 面板里是否允许运行时换仓库；`false` 时切换接口返回 400 并点名该键 |
 
 改配置后不需要重装，profile patch 层会重新应用到插件行。
 

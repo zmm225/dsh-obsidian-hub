@@ -176,4 +176,82 @@ plugin_manager set_bundle target=dsh-obsidian-hub enabled=true
 
 ---
 
+# 附录：v1.1 追加验证（2026-11-06）— 左侧栏面板 + 运行中换仓
+
+- 范围：`ARCHITECTURE.md`「多仓库切换（v1.1，2026-11-06，FROZEN）」：state 文件、root 优先级、`rt.setRoot()`、`activeRootSource()`、`GET /obsidian-hub/status` 新字段、`POST /obsidian-hub/vault`、client 的 `sidebar.panellist` + `main` 注册。
+- 结论：**PASS**。新增 `test/vault-switch.test.mjs` **26/26**；全仓 `node --test` **186/186**（exit 0）；`scripts/lead-smoke.mjs` **16/16**；`scripts/preinstall-check.mjs` PRE-INSTALL GATE PASSED；`node --check`（index/client/lib/test）0 失败。v1.1 未发现功能性缺陷；浏览器**视觉**渲染仍由 Lead 截图验证（verifier 只做注册/协议/行为层）。
+
+## 精确命令
+
+```powershell
+cd D:\个人提升\obsidian-hub
+node --test test/vault-switch.test.mjs      # 26 tests（v1.1 新增）
+node --test                                 # 186 tests，exit 0
+node --test test/integration.test.mjs       # 88 tests
+node scripts/lead-smoke.mjs                 # 16/16 passed
+node scripts/preinstall-check.mjs           # PRE-INSTALL GATE PASSED
+node --check index.js; node --check client.js
+Get-ChildItem lib -File | ForEach-Object { node --check ('lib/' + $_.Name) }
+Get-ChildItem test -File | ForEach-Object { node --check ('test/' + $_.Name) }
+```
+
+**卫生性**：v1.1 测试通过 `DSH_OBSIDIAN_HUB_STATE_DIR` 把 state 目录重定向到本进程 fixture 目录；所有 fixture vault 都在 `%TEMP%\dsh-obsidian-hub-verify\run-<pid>-<rand>` 下并在进程退出时清理。跑完全部测试后，真实 `C:\Users\zmmws\.dsh\obsidian-hub\state.json` **仍不存在**（verifier 从未读写它）；真实 vault `D:\obsidian\obsidian` 仅被 `lead-smoke` 只读访问。本轮最终源码：`client.js` 12:14:07、`lib/status-route.js` 12:14:36、`lib/runtime.js`/`lib/state.js`/`lib/config.js` 12:09，测试于 12:16:01–12:16:06 复跑全绿。
+
+## v1.1 PASS/FAIL/BLOCKED 表
+
+| # | 检查项 | 结果 | 证据 |
+|---|---|---|---|
+| A1 | state 缺失文件 → `null`；`statePath()` 在 `<homedir>/.dsh/obsidian-hub/state.json`，且 `DSH_OBSIDIAN_HUB_STATE_DIR` 生效 | PASS | state 单测 |
+| A2 | 损坏 JSON / JSON 字符串 / 数组 / null / `vaultPath` 类型错误或空串 / >64KB → 一律 `null`，**不抛** | PASS | 9 组输入 |
+| A3 | `writeState` 写入 `{version:1,vaultPath,updatedAt(ISO)}`，覆盖已有文件也可用，无 `.tmp` 残留 | PASS | state 单测 |
+| A4 | 写入失败不会破坏旧 state（半文件/损坏）：把 `.tmp` 变成目录强制失败后旧值仍在 | PASS | state 单测 |
+| A5 | `clearState` 删除文件，文件不存在时也不抛 | PASS | state 单测 |
+| B1 | 优先级 **state > config > auto**：3 个独立 runtime（state+config→state 赢；无 state+config→config；皆无+fake obsidian.json→auto），`activeRootSource()` 分别 'state'/'config'/'auto' | PASS | 3 场景用例 |
+| B2 | state 指向已消失目录 → 回退到 config，不把用户锁死 | PASS | 用例 |
+| B3 | 模拟重启：新 runtime 读取持久化选择（state） | PASS | 用例 |
+| B4 | 无法解析任何 vault 时 `activeRootSource()` → `null`（不抛），`vault()` 报可操作错误 | PASS | 用例 |
+| C1 | `setRoot(B)` 校验目录、持久化、返回 `{root,source:'state'}`、`vault()/activeRootSource()` 立即指向 B | PASS | setRoot 用例 |
+| C2 | `setRoot(不存在路径)` / `setRoot(文件路径)` 拒绝（可操作错误），当前 root 与 state 文件都**不变** | PASS | 用例 |
+| C3 | `setRoot(null)` 删除 state、回退 config；`setRoot('')` 同语义 | PASS | 用例 |
+| D1 | **换仓后工具作用于新 vault**：`setRoot(B)` → `obsidian_write` 写独占笔记 → `obsidian_search` 命中；A 的笔记在 B 搜索=0、B 磁盘不存在 A 路径；B 的笔记只存在于 B | PASS | 主用例 |
+| D2 | **索引按仓重建、无泄漏**：A/B 笔记数不同，切换后 `search stats.notes` 等于目标仓数量（未复用旧索引）；切回 A 后 B 笔记搜索=0、A 笔记（含工具写入与原有内容）恢复可见，`obsidian_read`/`obsidian_fs` 同步跟随 | PASS | 主用例 |
+| E1 | GET `/obsidian-hub/status` 200 + JSON，含 `vaultSource`、`allowVaultSwitch`、`vaults[]`，每项 `{path,name,open,exists,isVault,current}` 类型正确；当前仓唯一且 `isVault:true` | PASS | 路由用例 |
+| E2 | `vaults[]` 正确标记 `isVault`：真实 vault=true、无 `.obsidian` 的普通目录=false；不在 obsidian.json 的当前仓也会被注入为 current | PASS | 用例 |
+| E3 | POST `/obsidian-hub/vault` 有效路径 → 200 + 切换后 payload（`vaultSource:'state'`、`switchedTo`、notes 数符合目标仓），随后 GET 可见 | PASS | 路由用例 |
+| E4 | POST 不存在路径 → 400 `{ok:false,error}`，当前仓不变 | PASS | 路由用例 |
+| E5 | POST `{"path":null}` → 200 回到 config（`vaultSource:'config'`、state 清除） | PASS | 路由用例 |
+| E6 | 非 POST（GET/PUT/DELETE）→ 405 + `allow: POST`；body 非法 JSON / 数组 / path 非字符串 → 400 且服务不崩溃、后续请求仍正常 | PASS | 路由用例 |
+| E7 | `allowVaultSwitch:false`：GET 报告 false；POST 400 且错误文本点名 `allowVaultSwitch`；root 不变 | PASS | 路由用例 |
+| E8 | POST 缺少 `path` 字段（`{}`）→ 400「`path` is required…」，**不再**静默当作 null 清空（Lead 12:14 收紧，verifier 已加断言） | PASS | 路由用例 |
+| F1 | `client.js` 可编译为脚本；动态模块 `id:'dsh-obsidian-hub'`；`PANEL_ID='obsidian-hub'` | PASS | 可执行 factory + 静态 |
+| F2 | 注册 `sidebar.panellist {id:'obsidian-hub'}` **且** `main {key:'obsidian-hub'}`，两者用同一 `PANEL_ID`（匹配，否则侧栏图标打不开面板）；不再注册 `settings.section`；使用 GET /status + POST /vault | PASS | 可执行 factory（React stub）+ 静态 |
+| F3 | `locale/en.json`、`zh.json` 解析通过，`meta.title/description` 存在；en/zh 键集合一致；含 v1.1 换仓文案键（current/listTitle/switch/reset/disabledHint/switchError） | PASS | 资源用例 |
+| F4 | 用户可见中文串只出现在内联 DICT（en/zh 键各出现 2 次），JS 其余部分无散落中文 | PASS | 静态扫描 |
+| G1 | 回归：全仓 `node --test` 186/186（88 integration + 36 vault-core + 35 search + 26 vault-switch + fixture.mjs 被 Node 测试发现计 1）；lead-smoke 16/16；preinstall-check PASSED；node --check 0 失败 | PASS | 命令输出 |
+| G2 | 既有 8 工具仍注册且 schema 归一化（integration/lead-smoke 覆盖） | PASS | 既有套件 |
+| H1 | 浏览器中左侧栏图标的**视觉**渲染/点击交互（像素/DOM 层） | **BLOCKED（归 Lead）** | verifier 无浏览器截图通道；注册与 payload 已静态/可执行验证 |
+| H2 | 真实 Obsidian 应用内的人工换仓体验、真实 state 跨 App 重启持久化 | **NOT VERIFIED（归 Lead）** | verifier 用独立 runtime 模拟重启；未操作真实 App |
+
+## 换仓性能（实测）
+
+| 操作 | 耗时 |
+|---|---|
+| `rt.setRoot(vaultB)`（校验+原子写 state+清缓存） | 2.03ms |
+| 切换后第一次 `obsidian_search`（新建 B 索引，26 篇） | 24.15ms |
+| 切换后 `search mode=stats` | 0.07ms |
+| `rt.setRoot(null)`（删 state+回退 config） | 1.37ms |
+| state 文件大小 | 179 bytes |
+
+## v1.1 发现与处理
+
+| ID | 类型 | 状态 | 说明 |
+|---|---|---|---|
+| V11-T1 | 验证脚本缺陷（非插件） | 已修复 | Lead 将 `registerStatusRoute` 改为注册两个路由后，`test/integration.test.mjs` 的 REST URL `DEFECT-CHECK` 仍只保留“最后注册的 handler”，把 `/vault` 当成 GET 调 → 405 payload 无 `rest` 崩溃。已改为按 path 收集 handler 并显式取 `/obsidian-hub/status`；同时给 integration 套件加 `DSH_OBSIDIAN_HUB_STATE_DIR` 重定向，保证全仓套件不受真实 state 影响。 |
+| OBS-1 | 文档/契约措辞（LOW） | **已修复（Lead，12:14）** | ARCHITECTURE 的 `activeRootSource()` 已明确标注 `async`（“会先解析…”）；实现与文档一致，测试按 `await` 调用。 |
+| OBS-2 | 宽松输入（LOW） | **已修复（Lead，12:14）** | POST `/obsidian-hub/vault` 缺少 `path` 时原实现按 `null` 处理（200 清除回退）；Lead 已改为 400「`path` is required…」，verifier 增加了对应断言（E8）。 |
+
+**未验证（明确声明）**：左侧栏图标的视觉渲染与点击（Lead 截图验证）、真实 Obsidian App 内的人工换仓体验、真实 state 文件跨 App 重启的持久化（verifier 仅模拟“新 runtime 读取 state”）、真实 Local REST API 成功调用（v1.0 附录已由 Lead 实测，本轮未重测）。verifier 未修改任何插件源码，只改自己的测试与本文档。
+
+---
+
 *本报告只记录 verifier 亲自运行得到的结果；队友的单方面报告未被采信。安装成功不等于行为正确——上述 PASS 均基于实际调用与返回值/schema/render 校验。*
