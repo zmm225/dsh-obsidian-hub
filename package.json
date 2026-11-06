@@ -1,6 +1,6 @@
 {
   "name": "dsh-obsidian-hub",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "type": "module",
   "description": "Connect DeepSeek Harness to an Obsidian vault: read, write, batch operations, and fast queries.",

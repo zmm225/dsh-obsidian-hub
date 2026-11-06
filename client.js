@@ -89,6 +89,16 @@ window.__ModuleLoader__.load({
         'vault.pathRequired': 'Switch failed: enter an absolute path first',
         'vault.disabledHint': 'Vault switching is disabled in the plugin config (allowVaultSwitch: false).',
         'vault.rowHint': 'Switch to {path}',
+        'overview.title': 'Vault overview',
+        'overview.dirs': 'Folders',
+        'overview.recent': 'Recently modified',
+        'overview.empty': 'This vault has no notes yet.',
+        'overview.dirNotes': '{count} notes',
+        'overview.dirFilterHint': 'Filter notes under {name}/',
+        'overview.justNow': 'just now',
+        'overview.minutesAgo': '{n} min ago',
+        'overview.hoursAgo': '{n} h ago',
+        'overview.daysAgo': '{n} d ago',
         'search.label': 'Quick filter',
         'search.placeholder': 'Filter notes by title or path…',
         'search.count': '{count} of {total}',
@@ -141,6 +151,16 @@ window.__ModuleLoader__.load({
         'vault.pathRequired': '切换失败：请先输入绝对路径',
         'vault.disabledHint': '配置里已禁用换仓（allowVaultSwitch: false）。',
         'vault.rowHint': '切换到 {path}',
+        'overview.title': '仓库概览',
+        'overview.dirs': '目录',
+        'overview.recent': '最近修改',
+        'overview.empty': '这个仓库还没有笔记',
+        'overview.dirNotes': '{count} 篇',
+        'overview.dirFilterHint': '筛选 {name}/ 下的笔记',
+        'overview.justNow': '刚刚',
+        'overview.minutesAgo': '{n} 分钟前',
+        'overview.hoursAgo': '{n} 小时前',
+        'overview.daysAgo': '{n} 天前',
         'search.label': '快速筛选',
         'search.placeholder': '按标题或路径筛选笔记…',
         'search.count': '{count}/{total}',
@@ -218,6 +238,8 @@ window.__ModuleLoader__.load({
     const MAX_TITLES = 2000
     const MAX_RESULTS = 8
     const MAX_VAULTS = 50
+    const OVERVIEW_TREE_LIMIT = 40
+    const OVERVIEW_RECENT_LIMIT = 8
 
     function isRecord(value) {
       return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -360,6 +382,60 @@ window.__ModuleLoader__.load({
       return out
     }
 
+    /**
+     * Collect the top-level overview rows. Anything malformed is skipped: a bad
+     * row must never reach the DOM and never throw (a throw blanks the panel).
+     */
+    function readTree(raw) {
+      const out = []
+      try {
+        if (!Array.isArray(raw)) return out
+        for (let i = 0; i < raw.length && out.length < OVERVIEW_TREE_LIMIT; i += 1) {
+          const entry = raw[i]
+          if (!isRecord(entry)) continue
+          const name = asString(entry.name)
+          if (name === '') continue
+          const type = asString(entry.type)
+          if (type === 'dir') {
+            const notes = asNumber(entry.notes)
+            out.push({ kind: 'dir', name: name, notes: notes !== null && notes >= 0 ? notes : null })
+          } else if (type === 'file') {
+            out.push({
+              kind: 'file',
+              name: name,
+              rel: asString(entry.rel) || name,
+              title: asString(entry.title) || name,
+            })
+          }
+        }
+      } catch (error) {
+        return []
+      }
+      return out
+    }
+
+    /** Collect recent notes, newest first; rows without a usable mtime are dropped. */
+    function readRecent(raw) {
+      const out = []
+      try {
+        if (!Array.isArray(raw)) return out
+        for (let i = 0; i < raw.length && out.length < OVERVIEW_RECENT_LIMIT; i += 1) {
+          const entry = raw[i]
+          if (!isRecord(entry)) continue
+          const rel = asString(entry.rel)
+          const title = asString(entry.title) || baseName(rel)
+          if (rel === '' && title === '') continue
+          const mtimeMs = asNumber(entry.mtimeMs)
+          if (mtimeMs === null || mtimeMs <= 0) continue
+          out.push({ rel: rel, title: title, mtimeMs: mtimeMs })
+        }
+        out.sort(function (left, right) { return right.mtimeMs - left.mtimeMs })
+      } catch (error) {
+        return []
+      }
+      return out
+    }
+
     /** Normalize whatever the Host answered into the panel's own shape. */
     function normalizeStatus(raw) {
       const result = {
@@ -371,6 +447,9 @@ window.__ModuleLoader__.load({
         vaults: [],
         noteCount: null,
         titles: [],
+        tree: [],
+        recent: [],
+        hasOverview: false,
         indexReady: null,
         indexNotes: null,
         indexBuiltAt: null,
@@ -402,6 +481,13 @@ window.__ModuleLoader__.load({
         result.noteCount = count
 
         result.titles = readTitles(payload)
+
+        // Both overview fields are absent on older Hosts — then the card is hidden.
+        const hasTree = Array.isArray(payload.tree)
+        const hasRecent = Array.isArray(payload.recent)
+        result.hasOverview = hasTree || hasRecent
+        if (hasTree) result.tree = readTree(payload.tree)
+        if (hasRecent) result.recent = readRecent(payload.recent)
 
         if (isRecord(payload.index)) {
           result.indexReady = asBool(payload.index.ready)
@@ -620,6 +706,19 @@ window.__ModuleLoader__.load({
 .doh-value{font-size:13px;color:var(--dsw-alias-label-primary);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .doh-mono{font-family:var(--ds-font-family-code,ui-monospace,Menlo,Consolas,monospace);font-size:12px}
+.doh-ov-title{margin:0;font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.doh-overview{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:0}
+.doh-ov-col{display:flex;flex-direction:column;gap:6px;min-width:0}
+.doh-ov-list{display:flex;flex-direction:column;gap:1px;max-height:224px;overflow:auto;
+  border-radius:8px;margin:0 -4px;padding:2px 4px}
+.doh-ov-row{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;
+  text-align:left;background:transparent;border:0;border-radius:7px;padding:4px 6px;
+  font:inherit;font-size:13px;color:var(--dsw-alias-label-primary);cursor:pointer;min-width:0}
+.doh-ov-row:hover{background:var(--dsw-alias-bg-layer-2)}
+.doh-ov-glyph{display:inline-flex;flex:none;color:var(--dsw-alias-label-tertiary)}
+.doh-ov-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.doh-ov-meta{flex:none;font-size:11.5px;color:var(--dsw-alias-label-tertiary);
+  white-space:nowrap;font-variant-numeric:tabular-nums}
 .doh-feedback{font-size:12px;line-height:1.45;word-break:break-word}
 .doh-feedback.is-ok{color:var(--dsw-alias-state-success-primary)}
 .doh-feedback.is-error{color:var(--dsw-alias-state-error-primary)}
@@ -782,6 +881,206 @@ window.__ModuleLoader__.load({
         return []
       }
       return results
+    }
+
+    /** Localized relative time; empty string means "cannot be said". */
+    function relativeTime(mtimeMs, now, t) {
+      try {
+        const value = asNumber(mtimeMs)
+        const base = asNumber(now)
+        if (value === null || value <= 0) return ''
+        const deltaMs = (base === null ? Date.now() : base) - value
+        if (!isFinite(deltaMs)) return ''
+        const seconds = Math.max(0, Math.floor(deltaMs / 1000))
+        if (seconds < 60) return t('overview.justNow')
+        const minutes = Math.floor(seconds / 60)
+        if (minutes < 60) return t('overview.minutesAgo', { n: minutes })
+        const hours = Math.floor(minutes / 60)
+        if (hours < 24) return t('overview.hoursAgo', { n: hours })
+        return t('overview.daysAgo', { n: Math.floor(hours / 24) })
+      } catch (error) {
+        return ''
+      }
+    }
+
+    /** Small folder/file glyph; artwork stays monochrome via currentColor. */
+    function overviewGlyph(kind) {
+      try {
+        const children = []
+        if (kind === 'dir') {
+          children.push(h('path', {
+            key: 'p',
+            d: 'M1.8 4h4.4l1.3 1.7h6.7v7.2a.9.9 0 0 1-.9.9H2.7a.9.9 0 0 1-.9-.9z',
+            stroke: 'currentColor',
+            strokeWidth: 1.15,
+            strokeLinejoin: 'round',
+          }))
+        } else {
+          children.push(h('path', {
+            key: 'a',
+            d: 'M4 2.1h5.4L12.9 5.7v8.2H4z',
+            stroke: 'currentColor',
+            strokeWidth: 1.15,
+            strokeLinejoin: 'round',
+          }))
+          children.push(h('path', {
+            key: 'b',
+            d: 'M9.2 2.2v3.7h3.4',
+            stroke: 'currentColor',
+            strokeWidth: 1.15,
+            strokeLinecap: 'round',
+          }))
+        }
+        return h('svg', {
+          className: 'doh-ov-glyph',
+          width: 14,
+          height: 14,
+          viewBox: '0 0 16 16',
+          fill: 'none',
+          xmlns: 'http://www.w3.org/2000/svg',
+          'aria-hidden': 'true',
+          focusable: 'false',
+        }, children)
+      } catch (error) {
+        return null
+      }
+    }
+
+    /** One overview column; rows that fail to build are skipped, not rendered. */
+    function overviewColumn(t, kind, data, view) {
+      const items = []
+      try {
+        const rows = kind === 'dir'
+          ? (Array.isArray(data.tree) ? data.tree : [])
+          : (Array.isArray(data.recent) ? data.recent : [])
+        const limit = kind === 'dir' ? OVERVIEW_TREE_LIMIT : OVERVIEW_RECENT_LIMIT
+        for (let i = 0; i < rows.length && items.length < limit; i += 1) {
+          const entry = rows[i]
+          try {
+            if (!isRecord(entry)) continue
+            if (kind === 'dir') {
+              if (entry.kind !== 'dir' && entry.kind !== 'file') continue
+              const name = asString(entry.name)
+              if (name === '') continue
+              if (entry.kind === 'dir') {
+                const meta = entry.notes !== null && entry.notes !== undefined
+                  ? h('span', { className: 'doh-ov-meta', key: 'm' }, t('overview.dirNotes', { count: entry.notes.toLocaleString() }))
+                  : null
+                items.push(h('button', {
+                  type: 'button',
+                  key: 'dir:' + i + ':' + name,
+                  className: 'doh-ov-row',
+                  title: t('overview.dirFilterHint', { name: name }),
+                  onClick: function () {
+                    try {
+                      view.setQuery(name + '/')
+                    } catch (error) {
+                      /* the filter setter never throws out */
+                    }
+                  },
+                }, [overviewGlyph('dir'), h('span', { className: 'doh-ov-name', key: 'n' }, name), meta]))
+              } else {
+                items.push(h('button', {
+                  type: 'button',
+                  key: 'file:' + i + ':' + (entry.rel || name),
+                  className: 'doh-ov-row',
+                  title: entry.title || name,
+                  onClick: function () {
+                    try {
+                      openNote(view.vaultName, entry.rel || name)
+                    } catch (error) {
+                      /* a blocked popup is not worth surfacing */
+                    }
+                  },
+                }, [overviewGlyph('file'), h('span', { className: 'doh-ov-name', key: 'n' }, name)]))
+              }
+            } else {
+              const rel = asString(entry.rel)
+              const title = asString(entry.title) || baseName(rel)
+              if (title === '' && rel === '') continue
+              const when = relativeTime(entry.mtimeMs, view.now, t)
+              items.push(h('button', {
+                type: 'button',
+                key: 'recent:' + i + ':' + rel,
+                className: 'doh-ov-row',
+                title: rel !== '' ? rel : title,
+                onClick: function () {
+                  try {
+                    openNote(view.vaultName, rel !== '' ? rel : title)
+                  } catch (error) {
+                    /* ignore */
+                  }
+                },
+              }, [
+                overviewGlyph('file'),
+                h('span', { className: 'doh-ov-name', key: 'n' }, title === '' ? baseName(rel) : title),
+                when !== ''
+                  ? h('span', { className: 'doh-ov-meta', key: 'm' }, when)
+                  : null,
+              ]))
+            }
+          } catch (error) {
+            continue
+          }
+        }
+      } catch (error) {
+        return null
+      }
+      if (items.length === 0) return null
+      try {
+        return h('div', { className: 'doh-ov-col', key: kind }, [
+          h('div', { className: 'doh-section-label', key: 'lbl' }, t(kind === 'dir' ? 'overview.dirs' : 'overview.recent')),
+          h('div', { className: 'doh-ov-list', key: 'list' }, items),
+        ])
+      } catch (error) {
+        return null
+      }
+    }
+
+    /**
+     * Vault overview card: top-level folders/files + recently modified notes.
+     * Hidden entirely on an old Host payload; a throwing builder yields null so
+     * the rest of the panel stays alive.
+     */
+    function overviewCard(view) {
+      try {
+        const t = view.t
+        const data = view.data
+        if (!isRecord(data) || data.hasOverview !== true) return null
+
+        const hasTree = Array.isArray(data.tree) && data.tree.length > 0
+        const hasRecent = Array.isArray(data.recent) && data.recent.length > 0
+        const children = [
+          h('h3', { className: 'doh-ov-title', key: 'title' }, t('overview.title')),
+        ]
+
+        if (hasTree !== true && hasRecent !== true) {
+          // Nothing to show. Only claim "no notes" when the count agrees.
+          if (data.noteCount === 0) {
+            children.push(h('div', { className: 'doh-empty', key: 'empty' }, t('overview.empty')))
+          } else {
+            return null
+          }
+          return h('div', { className: 'doh-card', key: 'overview' }, children)
+        }
+
+        const columns = []
+        const dirs = hasTree ? overviewColumn(t, 'dir', data, view) : null
+        if (dirs !== null) columns.push(dirs)
+        const recent = hasRecent ? overviewColumn(t, 'recent', data, view) : null
+        if (recent !== null) columns.push(recent)
+        if (columns.length === 0) {
+          if (data.noteCount === 0) {
+            children.push(h('div', { className: 'doh-empty', key: 'empty' }, t('overview.empty')))
+            return h('div', { className: 'doh-card', key: 'overview' }, children)
+          }
+          return null
+        }
+        children.push(h('div', { className: 'doh-overview', key: 'cols' }, columns))
+        return h('div', { className: 'doh-card', key: 'overview' }, children)
+      } catch (error) {
+        return null
+      }
     }
 
     function searchBlock(t, data, query, setQuery, results) {
@@ -1098,6 +1397,8 @@ window.__ModuleLoader__.load({
           statusGrid(t, data),
         ]),
 
+        overviewCard(view),
+
         view.phase === 'waiting'
           ? noticeBlock(t('waiting.title'), t('waiting.body', { route: STATUS_PATH }))
           : null,
@@ -1267,6 +1568,8 @@ window.__ModuleLoader__.load({
         query: query,
         setQuery: setQuery,
         results: results,
+        vaultName: data !== null ? data.vaultName : '',
+        now: Date.now(),
         pathInput: pathInput,
         setPathInput: setPathInput,
         busy: busy,

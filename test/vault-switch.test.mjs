@@ -15,7 +15,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import { createFixtureVault, fixturePaths, cleanupAll, NOTES } from './fixture.mjs'
+import { createFixtureVault, createPerfVault, fixturePaths, cleanupAll, NOTES } from './fixture.mjs'
 
 const paths = fixturePaths()
 const STATE_DIR = path.join(paths.base, 'state')
@@ -787,6 +787,10 @@ test('client: locales parse, have meta.title/description + vault-switch strings,
     assert.ok(enKeys.includes(key), `en locale must define ${key} (v1.1 vault switcher)`)
     assert.ok(zhKeys.includes(key), `zh locale must define ${key} (v1.1 vault switcher)`)
   }
+  for (const key of ['panel.overview.title', 'panel.overview.dirs', 'panel.overview.recent', 'panel.overview.empty', 'panel.overview.dirNotes']) {
+    assert.ok(enKeys.includes(key), `en locale must define ${key} (v1.1.1 overview)`)
+    assert.ok(zhKeys.includes(key), `zh locale must define ${key} (v1.1.1 overview)`)
+  }
 })
 
 test('client: all inline user-visible strings live in the DICT (en/zh parity), no scattered Chinese', () => {
@@ -806,5 +810,281 @@ test('client: all inline user-visible strings live in the DICT (en/zh parity), n
   assert.ok(counts.size > 30, `inline DICT should define many strings, got ${counts.size}`)
   for (const [key, count] of counts) {
     assert.equal(count, 2, `inline DICT key ${key} must appear once in en and once in zh`)
+  }
+})
+
+test('client v1.1.1: overview reads tree/recent from the SAME status payload (no new endpoint) and tolerates missing fields', () => {
+  const { source } = loadClientModule()
+  const urls = [...new Set([...source.matchAll(/['"](\/obsidian-hub\/[a-z-]+)['"]/g)].map((match) => match[1]))].sort()
+  assert.deepEqual(urls, ['/obsidian-hub/status', '/obsidian-hub/vault'], 'the panel must use only the existing two endpoints (no new fetch path)')
+  const fetchCalls = source.match(/\bfetch\(/g) || []
+  assert.ok(fetchCalls.length <= 1, `overview must reuse the single status fetch helper, found ${fetchCalls.length} fetch( calls`)
+
+  assert.match(source, /Array\.isArray\(payload\.tree\)/, 'tree must be read defensively from the status payload')
+  assert.match(source, /Array\.isArray\(payload\.recent\)/, 'recent must be read defensively from the status payload')
+  assert.match(source, /const OVERVIEW_TREE_LIMIT = 40/)
+  assert.match(source, /const OVERVIEW_RECENT_LIMIT = 8/)
+  assert.match(source, /readTree/, 'tree rows must pass through a tolerant reader')
+  assert.match(source, /readRecent/, 'recent rows must pass through a tolerant reader')
+  assert.match(source, /hasOverview/, 'older Hosts without the fields must be tolerated (card hidden)')
+
+  // All visible overview strings come from the locale DICT keys.
+  for (const key of ['overview.title', 'overview.dirs', 'overview.recent', 'overview.empty', 'overview.dirNotes']) {
+    assert.ok(source.includes(`'${key}'`), `client inline DICT must define ${key}`)
+  }
+})
+
+// ---------------------------------------------------------------- v1.1.1 overview payload
+
+function makeBareVault(name, files) {
+  const root = path.join(paths.base, `bare-${name}`)
+  fs.rmSync(root, { recursive: true, force: true })
+  fs.mkdirSync(root, { recursive: true })
+  for (const [rel, content] of Object.entries(files)) writeNote(root, rel, content)
+  return { root }
+}
+
+function missingRegistry(name) {
+  return path.join(paths.base, `no-registry-${name}`, 'obsidian.json')
+}
+
+async function readStatusPayload(rt) {
+  const handlers = captureRoutes(rt)
+  const response = await callRoute(handlers, '/obsidian-hub/status', { method: 'GET' })
+  return { response, payload: response.json() }
+}
+
+test('v1.1.1 tree: top-level dirs first (recursive note counts), then top-level files; nested dirs are not rows', async () => {
+  await resetState()
+  const vault = makeBareVault('overview-tree', {
+    'README.md': '# Root\n',
+    'fresh.md': '# Fresh\n',
+    'notes/a.md': '# A\n',
+    'notes/deep/b.md': '# B\n',
+    'archive/old.md': '# Old\n',
+  })
+  const rt = runtimeFor({ vaultPath: vault.root, obsidianConfigPath: missingRegistry('overview-tree') })
+  const { response, payload } = await readStatusPayload(rt)
+  assert.equal(response.statusCode, 200)
+  assert.equal(payload.ok, true)
+  assert.ok(Array.isArray(payload.tree), 'tree must be an array')
+  assert.deepEqual(
+    payload.tree.map((entry) => entry.name),
+    ['archive', 'notes', 'fresh.md', 'README.md'],
+    'dirs name-sorted first, then top-level files name-sorted',
+  )
+  const dirs = payload.tree.filter((entry) => entry.type === 'dir')
+  const files = payload.tree.filter((entry) => entry.type === 'file')
+  assert.deepEqual(dirs.map((entry) => [entry.name, entry.notes]), [
+    ['archive', 1],
+    ['notes', 2],
+  ])
+  assert.equal(dirs.some((entry) => entry.name === 'deep'), false, 'nested dirs must not become rows')
+  assert.deepEqual(files.map((entry) => entry.name), ['fresh.md', 'README.md'])
+  for (const entry of files) {
+    assert.equal(typeof entry.rel, 'string')
+    assert.equal(entry.rel.includes('\\'), false, 'file rel must use forward slashes')
+    assert.equal(entry.rel, entry.name)
+    assert.equal(typeof entry.title, 'string')
+    assert.ok(entry.title.length > 0)
+  }
+  assert.equal(files.find((entry) => entry.name === 'fresh.md').title, 'Fresh')
+  assert.equal(files.find((entry) => entry.name === 'README.md').title, 'Root')
+  assert.ok(payload.tree.length <= 40)
+})
+
+test('v1.1.1 tree: total rows capped at 40 (dirs and files share the cap)', async () => {
+  await resetState()
+  const layout = {}
+  for (let i = 0; i < 30; i += 1) layout[`d${String(i).padStart(2, '0')}/note.md`] = `# D${i}\n`
+  for (let i = 0; i < 20; i += 1) layout[`f${String(i).padStart(2, '0')}.md`] = `# F${i}\n`
+  const vault = makeBareVault('overview-cap', layout)
+  const rt = runtimeFor({ vaultPath: vault.root, obsidianConfigPath: missingRegistry('overview-cap') })
+  const { payload } = await readStatusPayload(rt)
+  assert.equal(payload.tree.length, 40, 'tree must be capped at 40 rows')
+  const dirs = payload.tree.filter((entry) => entry.type === 'dir')
+  const files = payload.tree.filter((entry) => entry.type === 'file')
+  assert.equal(dirs.length, 30)
+  assert.equal(files.length, 10, 'files share the remaining cap after dirs')
+  assert.deepEqual(dirs.map((entry) => entry.name), Array.from({ length: 30 }, (_, i) => `d${String(i).padStart(2, '0')}`))
+  assert.deepEqual(files.map((entry) => entry.name), Array.from({ length: 10 }, (_, i) => `f${String(i).padStart(2, '0')}.md`))
+})
+
+test('v1.1.1 recent: newest-first by mtimeMs, max 8, {rel,title,mtimeMs} with forward-slash rel', async () => {
+  await resetState()
+  const layout = {}
+  for (let i = 0; i < 12; i += 1) layout[`recent/r${String(i).padStart(2, '0')}.md`] = `# R${i}\n`
+  const vault = makeBareVault('overview-recent', layout)
+  const base = 1_762_300_000
+  for (let i = 0; i < 12; i += 1) {
+    const abs = path.join(vault.root, 'recent', `r${String(i).padStart(2, '0')}.md`)
+    fs.utimesSync(abs, base + i, base + i)
+  }
+  const rt = runtimeFor({ vaultPath: vault.root, obsidianConfigPath: missingRegistry('overview-recent') })
+  const { payload } = await readStatusPayload(rt)
+  assert.ok(Array.isArray(payload.recent))
+  assert.equal(payload.recent.length, 8, 'recent is capped at 8 entries')
+  for (const entry of payload.recent) {
+    assert.equal(typeof entry.rel, 'string')
+    assert.equal(entry.rel.includes('\\'), false, 'recent rel must use forward slashes')
+    assert.equal(typeof entry.title, 'string')
+    assert.equal(Number.isFinite(entry.mtimeMs), true, 'mtimeMs must be a finite number')
+  }
+  assert.deepEqual(
+    payload.recent.map((entry) => entry.rel),
+    Array.from({ length: 8 }, (_, index) => `recent/r${String(11 - index).padStart(2, '0')}.md`),
+    'recent must be newest-first',
+  )
+  for (let i = 1; i < payload.recent.length; i += 1) {
+    assert.ok(payload.recent[i - 1].mtimeMs >= payload.recent[i].mtimeMs, 'recent must be sorted by mtimeMs descending')
+  }
+  assert.equal(payload.recent[0].title, 'R11')
+})
+
+test('v1.1.1 overview: empty vault → tree [] / recent [], still 200 and ok:true', async () => {
+  await resetState()
+  const vault = makeBareVault('overview-empty', {})
+  const rt = runtimeFor({ vaultPath: vault.root, obsidianConfigPath: missingRegistry('overview-empty') })
+  const { response, payload } = await readStatusPayload(rt)
+  assert.equal(response.statusCode, 200)
+  assert.equal(payload.ok, true)
+  assert.deepEqual(payload.tree, [])
+  assert.deepEqual(payload.recent, [])
+  assert.equal(payload.notes.count, 0)
+  assert.equal(payload.index.ready, true)
+})
+
+test('v1.1.1 overview: index unavailable → tree [] / recent [], index.ready:false, 200, no crash', async () => {
+  await resetState()
+  const vault = makeBareVault('overview-index-broken', { 'x.md': '# X\n', 'dir/y.md': '# Y\n' })
+  const baseRt = runtimeFor({ vaultPath: vault.root, obsidianConfigPath: missingRegistry('overview-index-broken') })
+  const failingRt = {
+    config: baseRt.config,
+    vault: () => baseRt.vault(),
+    index: async () => {
+      throw new Error('index exploded on purpose')
+    },
+    rest: () => baseRt.rest(),
+    status: () => baseRt.status(),
+  }
+  const handlers = captureRoutes(failingRt)
+  const first = await callRoute(handlers, '/obsidian-hub/status', { method: 'GET' })
+  assert.equal(first.statusCode, 200, 'index failure must not crash the endpoint')
+  const payload = first.json()
+  assert.deepEqual(payload.tree, [], 'tree must be the initializer [] when the index throws')
+  assert.deepEqual(payload.recent, [], 'recent must be the initializer [] when the index throws')
+  assert.equal(payload.index.ready, false)
+  assert.match(String(payload.index.error), /index exploded/)
+  // A second call must still answer (no stuck state / no unhandled rejection).
+  const second = await callRoute(handlers, '/obsidian-hub/status', { method: 'GET' })
+  assert.equal(second.statusCode, 200)
+})
+
+test('v1.1.1 overview: POST switch payload carries tree/recent for the NEW vault layout', async () => {
+  await resetState()
+  const vaultOne = makeBareVault('overview-switch-one', { 'alpha/one.md': '# Alpha\n', 'one-root.md': '# One Root\n' })
+  const vaultTwo = makeBareVault('overview-switch-two', { 'beta/two.md': '# Beta\n', 'two-root.md': '# Two Root\n' })
+  // Make vaultTwo's root note strictly newer so recent ordering is unambiguous.
+  fs.utimesSync(path.join(vaultTwo.root, 'two-root.md'), 1_762_400_100, 1_762_400_100)
+  fs.utimesSync(path.join(vaultTwo.root, 'beta', 'two.md'), 1_762_400_000, 1_762_400_000)
+
+  const rt = runtimeFor({ vaultPath: vaultOne.root, obsidianConfigPath: missingRegistry('overview-switch') })
+  const handlers = captureRoutes(rt)
+
+  const before = (await callRoute(handlers, '/obsidian-hub/status', { method: 'GET' })).json()
+  assert.deepEqual(before.tree.map((entry) => entry.name), ['alpha', 'one-root.md'])
+
+  const switched = await callRoute(handlers, '/obsidian-hub/vault', { method: 'POST', body: { path: vaultTwo.root } })
+  assert.equal(switched.statusCode, 200)
+  const payload = switched.json()
+  assert.deepEqual(payload.tree.map((entry) => entry.name), ['beta', 'two-root.md'], 'POST payload must carry the NEW vault overview')
+  assert.equal(payload.tree[0].type, 'dir')
+  assert.equal(payload.tree[0].notes, 1)
+  assert.deepEqual(payload.recent.map((entry) => entry.rel), ['two-root.md', 'beta/two.md'])
+  assert.equal(payload.recent[0].title, 'Two Root')
+  assert.equal(payload.vaultSource, 'state')
+
+  const after = (await callRoute(handlers, '/obsidian-hub/status', { method: 'GET' })).json()
+  assert.deepEqual(after.tree.map((entry) => entry.name), ['beta', 'two-root.md'])
+})
+
+test('v1.1.1 overview cost: 200-note vault, single-pass derivation adds no extra disk I/O or rebuild', async () => {
+  await resetState()
+  const perf = createPerfVault({ count: 200, root: path.join(paths.base, 'perf-overview') })
+  try {
+    const rt = runtimeFor({
+      vaultPath: perf.root,
+      obsidianConfigPath: missingRegistry('perf-overview'),
+      indexTtlMs: 60_000,
+    })
+    await rt.index() // build/warm the index once, outside the measured call
+
+    // Stub only rt.status() so the measurement isolates `collect()` (the real
+    // rt.status() spawns App discovery probes and would dominate the timing);
+    // vault/index/rest below are the REAL runtime members.
+    const stubStatus = {
+      ok: true,
+      vault: { path: perf.root, source: 'config', exists: true, error: null },
+      vaultSource: 'config',
+      allowVaultSwitch: true,
+      vaults: [],
+      rest: { configured: false, reachable: false },
+      index: null,
+      warnings: [],
+    }
+    const routeRt = {
+      config: rt.config,
+      vault: () => rt.vault(),
+      index: () => rt.index(),
+      rest: () => rt.rest(),
+      status: async () => stubStatus,
+    }
+    const handlers = captureRoutes(routeRt)
+
+    // Warm one identical call so module/JIT/serialization cost is not in the sample.
+    await callRoute(handlers, '/obsidian-hub/status', { method: 'GET' })
+    const before = (await rt.index()).stats
+
+    const samples = []
+    for (let i = 0; i < 5; i += 1) {
+      const started = performance.now()
+      const response = await callRoute(handlers, '/obsidian-hub/status', { method: 'GET' })
+      samples.push(performance.now() - started)
+      assert.equal(response.statusCode, 200)
+    }
+    samples.sort((a, b) => a - b)
+    const median = samples[Math.floor(samples.length / 2)]
+    const min = samples[0]
+
+    const after = (await rt.index()).stats
+    assert.equal(after.notes, 200)
+    assert.equal(after.reads, before.reads, 'deriving tree/recent must not read files again')
+    assert.equal(after.builtAt, before.builtAt, 'deriving tree/recent must not rebuild the index')
+    console.log(
+      `[perf] overview status (200 notes): min=${min.toFixed(2)}ms median=${median.toFixed(2)}ms; index reads ${before.reads}→${after.reads}; builtAt unchanged=${after.builtAt === before.builtAt}`,
+    )
+    assert.ok(median < 100, `one status call over 200 notes should stay well under 100ms, got ${median.toFixed(1)}ms`)
+
+    const payload = (await callRoute(handlers, '/obsidian-hub/status', { method: 'GET' })).json()
+    assert.deepEqual(payload.tree.map((entry) => [entry.name, entry.type, entry.notes]), [['perf', 'dir', 200]])
+    assert.equal(payload.recent.length, 8)
+    assert.ok(payload.recent.every((entry) => entry.rel.startsWith('perf/')), 'recent rels come from the index with forward slashes')
+
+    // Full real call (no stub): this also runs rt.status() -> detectObsidianApp()
+    // probes, so report both numbers instead of hiding that cost in the isolated one.
+    const realHandlers = captureRoutes(rt)
+    await callRoute(realHandlers, '/obsidian-hub/status', { method: 'GET' }) // warm
+    const readsBeforeReal = (await rt.index()).stats
+    const fullStarted = performance.now()
+    const fullResponse = await callRoute(realHandlers, '/obsidian-hub/status', { method: 'GET' })
+    const fullWall = performance.now() - fullStarted
+    const readsAfterReal = (await rt.index()).stats
+    assert.equal(fullResponse.statusCode, 200)
+    assert.equal(readsAfterReal.reads, readsBeforeReal.reads, 'full status call must not read note files again')
+    assert.equal(readsAfterReal.builtAt, readsBeforeReal.builtAt, 'full status call must not rebuild the index')
+    console.log(`[perf] full GET /status wall (200 notes, incl. app-discovery probes): ${fullWall.toFixed(1)}ms`)
+    assert.ok(fullWall < 3_000)
+  } finally {
+    perf.cleanup()
   }
 })

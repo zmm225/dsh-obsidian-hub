@@ -53,6 +53,18 @@
       "disabledHint": "Vault switching is disabled in the plugin config (allowVaultSwitch: false).",
       "rowHint": "Switch to {path}"
     },
+    "overview": {
+      "title": "Vault overview",
+      "dirs": "Folders",
+      "recent": "Recently modified",
+      "empty": "This vault has no notes yet.",
+      "dirNotes": "{count} notes",
+      "dirFilterHint": "Filter notes under {name}/",
+      "justNow": "just now",
+      "minutesAgo": "{n} min ago",
+      "hoursAgo": "{n} h ago",
+      "daysAgo": "{n} d ago"
+    },
     "search": {
       "label": "Quick filter",
       "placeholder": "Filter notes by title or path…",

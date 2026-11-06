@@ -254,4 +254,58 @@ Get-ChildItem test -File | ForEach-Object { node --check ('test/' + $_.Name) }
 
 ---
 
+## 附录 v1.1.1：仓库概览区块（2026-11-06）
+
+- 契约：`ARCHITECTURE.md`「面板的仓库概览区块（v1.1.1，FROZEN）」——`GET /obsidian-hub/status` 新增 `tree`（顶层目录在前、文件在后，各按名称排序，目录带该目录 .md 数，总行数 ≤40，正斜杠）与 `recent`（最近修改 ≤8，`mtimeMs` 倒序，`{rel,title,mtimeMs}`）；索引不可用时两者为 `[]`；不得额外扫盘。
+- 结论：**PASS**。`test/vault-switch.test.mjs` 扩到 **34/34**；全仓 `node --test` **194/194（exit 0）**；`lead-smoke` **16/16**；`preinstall-check` **PRE-INSTALL GATE PASSED**；`node --check`（index/client/lib/test）0 失败。未发现 v1.1.1 功能缺陷。
+
+### 精确命令
+
+```powershell
+cd D:\个人提升\obsidian-hub
+node --test test/vault-switch.test.mjs   # 34 tests（v1.1: 26 + v1.1.1: 8）
+node --test                              # 194 tests，exit 0
+node scripts/lead-smoke.mjs              # 16/16 passed
+node scripts/preinstall-check.mjs        # PRE-INSTALL GATE PASSED
+node --check client.js
+Get-ChildItem lib,test -File | ForEach-Object { node --check ('lib/' + $_.Name) }  # 见上
+```
+
+### PASS/FAIL/BLOCKED 表
+
+| # | 检查项 | 结果 | 证据 |
+|---|---|---|---|
+| T1 | `tree` 顶层布局：目录在前并按名排序、文件在后并按名排序；目录 `notes` 计数递归（`notes/a.md` + `notes/deep/b.md` → 2），嵌套目录 `deep` **不**单独成行；`archive`=1；文件行带 `rel`+`title`；`rel` 一律正斜杠 | PASS | 专用 fixture 用例（observed：`['archive','notes','fresh.md','README.md']`） |
+| T2 | 总数上限 40：30 个顶层目录 + 20 个顶层文件 → tree 恰好 40 行（30 dir + 10 file，文件按名排序取前 10），目录仍 name-sorted | PASS | 限流行用例 |
+| T3 | `recent`：12 篇不同 mtime → 恰好 8 条、严格 `mtimeMs` 倒序、每项 `{rel,title,mtimeMs finite}`、rel 正斜杠、标题正确（最新 = `recent/r11.md`） | PASS | recent 用例 |
+| T4 | 空仓库（0 笔记）→ `tree: []`、`recent: []`，HTTP 200、`ok:true`、`notes.count=0`、`index.ready=true` | PASS | 空仓用例 |
+| T5 | 索引不可用（强制 `rt.index()` throw）→ 初始化的 `tree: []`/`recent: []` 保留、`index.ready:false`、HTTP 200、无崩溃；第二次请求仍正常 | PASS | 故障注入用例 |
+| T6 | **换仓跟随**：`POST /obsidian-hub/vault` 成功 payload 同样携带 `tree`/`recent`，且切换到新布局仓库后反映新仓库（`alpha` 布局 → `beta` 布局；recent 为新仓笔记、newest-first）；随后 GET 亦为新仓 | PASS | 换仓 payload 用例 |
+| T7 | **成本**：200 篇 fixture，隔离 `collect()`（stub 掉 `rt.status()` 的 App 探测）单次 status 调用 **min 0.14ms / median 0.14ms**；`index.stats.reads` 200→200、`builtAt` 不变 → **无额外文件读、无重建**；完整 GET（含既有 `detectObsidianApp` 探测）wall **166.8ms**（该开销是 v1.0 既有的 App 探测，非概览派生） | PASS | 成本用例 + `[perf]` 输出 |
+| C1 | 客户端静态（可执行 factory 编译）：概览只从**同一个** `GET /obsidian-hub/status` payload 读 `tree`/`recent`，面板 URL 集合仍只有 `/obsidian-hub/status` + `/obsidian-hub/vault`（无新 fetch 路径），`fetch(` 仅 1 处；`Array.isArray(payload.tree/recent)` 防御、`hasOverview` 兼容旧 Host 缺字段、`OVERVIEW_TREE_LIMIT=40`/`OVERVIEW_RECENT_LIMIT=8`、`readTree`/`readRecent` 容错读取 | PASS | 客户端静态用例 |
+| C2 | 概览文案在 locale：内联 DICT `overview.title/dirs/recent/empty/dirNotes` 存在且 en/zh 各一次；外部 `locale/en.json`+`zh.json` 解析且键集合一致；JS 里 DICT 之外无中文散落 | PASS | 既有 DICT/locale 用例扩展 |
+| R1 | 回归：全仓 `node --test` **194/194**（88 integration + 36 vault-core + 35 search + 34 vault-switch + fixture.mjs 计 1）、`lead-smoke` 16/16、`preinstall-check` PASSED、`node --check` 0 失败 | PASS | 命令输出 |
+| B1 | 浏览器中「仓库概览」卡片的**视觉**渲染、点击目录筛选/点击最近笔记打开 | **BLOCKED（归 Lead）** | verifier 无浏览器截图/DOM 通道；payload 与注册/静态协议已验证 |
+
+### 性能实测（200 篇 fixture）
+
+| 测量 | 数值 |
+|---|---|
+| 隔离 `collect()` 单次 status（stub `rt.status()`）min / median | 0.14ms / 0.14ms |
+| 完整 `GET /obsidian-hub/status`（含既有 App 探测 `detectObsidianApp`） | 166.8ms |
+| 索引文件读取次数（派生前后） | 200 → 200（无额外 I/O） |
+| `builtAt`（派生前后） | 不变（未重建） |
+| tree 行数 / recent 行数 | 1（`perf` 目录, 200 篇）/ 8 |
+
+### 发现
+
+| ID | 类型 | 状态 | 说明 |
+|---|---|---|---|
+| — | 功能缺陷 | 无 | v1.1.1 未发现功能缺陷；`tree`/`recent` 的排序、计数、截断、空仓/索引失败退化、换仓跟随、成本声明全部符合契约。 |
+| OBS-3 | 性能观察（非缺陷） | 记录 | 完整 status 路由 wall ≈167ms，主要来自 v1.0 既有的 `detectObsidianApp()` 同步探测（每次 status 都会做）；概览派生本身 0.14ms、零额外读盘。若未来要优化面板刷新延迟，应先缓存 App 探测结果，而不是概览派生。 |
+
+**卫生性**：v1.1.1 测试全部在 `%TEMP%` fixture（`run-<pid>-<rand>`）中进行，跑完自动清理；真实 `~/.dsh/obsidian-hub/state.json` 仍不存在，真实 vault `D:\obsidian\obsidian` 未被本轮测试写入。verifier 只改了自己的测试文件与本文档，未改插件源码。
+
+---
+
 *本报告只记录 verifier 亲自运行得到的结果；队友的单方面报告未被采信。安装成功不等于行为正确——上述 PASS 均基于实际调用与返回值/schema/render 校验。*

@@ -192,6 +192,26 @@ ctx.slots.inject('main', () => ctx.slots.register(
 |---|---|---|
 | `allowVaultSwitch` | `true` | 面板里是否允许换仓库；`false` 时 POST 返回 400 |
 
+### 面板的仓库概览区块（v1.1.1，2026-11-06，FROZEN）
+
+`GET /obsidian-hub/status` 再新增两个字段，全部由**已有索引**派生（不额外扫盘）：
+
+```js
+tree: [                                   // 顶层目录树，目录在前、文件在后，均按名称排序，总上限 40
+  { name: 'notes', type: 'dir',  notes: 12 },      // notes = 该顶层目录下 .md 数量
+  { name: 'README.md', type: 'file', rel: 'README.md', title: 'README' },
+]
+recent: [                                 // 最近修改，最多 8 条，按 mtimeMs 倒序
+  { rel: 'notes/a.md', title: 'A', mtimeMs: 1762300000000 },
+]
+```
+
+- 一律使用 **正斜杠** 的相对路径（Windows 后端也统一成 `/`）。
+- 索引不可用时两个字段都是 `[]`，不报错。
+- 目录项不递归、不暴露除了「顶层名字 + 该目录下笔记数」以外的信息；文件名/标题会出现在 payload 里（本来就有 `notes.titles`）。
+
+客户端行为：新增「仓库概览」卡片，左列顶层目录（点击 = 把筛选框设为该目录前缀），右列最近修改（点击 = `obsidian://open` 打开那篇）。空仓库时显示一句空状态，不编造数据。
+
 ## `lib/vault.js` 契约（vault-core 实现）
 
 ```js
