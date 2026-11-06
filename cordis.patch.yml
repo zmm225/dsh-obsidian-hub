@@ -1,0 +1,22 @@
+# Obsidian Hub — bundle patch layer.
+# Inserts the Host plugin row that registers the obsidian_* tools.
+- insert:
+    - id: obsidian-hub
+      name: dsh-obsidian-hub
+      config:
+        vaultPath: ''
+        autoDetect: true
+        exclude:
+          - .obsidian/**
+          - .trash/**
+          - '**/node_modules/**'
+          - '**/.git/**'
+        restBaseUrl: https://127.0.0.1:27124
+        restApiKey: ''
+        restInsecure: true
+        indexTtlMs: 8000
+        indexMaxFiles: 20000
+        indexMaxTotalBytes: 67108864
+        maxFileBytes: 2097152
+        defaultReadLimit: 400
+        trashMode: trash

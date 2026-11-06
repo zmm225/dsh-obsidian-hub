@@ -1,0 +1,56 @@
+{
+  "meta": {
+    "title": "Obsidian Hub",
+    "description": "Connects a local Obsidian vault to DeepSeek Harness: read, write, batch operations, fast BM25/regex/tag/link queries, filesystem operations, and live Obsidian actions through the Local REST API."
+  },
+  "panel": {
+    "title": "Obsidian Hub",
+    "status": {
+      "connected": "Connected",
+      "waiting": "Waiting for data",
+      "error": "Unavailable",
+      "loading": "Loading…"
+    },
+    "fields": {
+      "vault": "Vault",
+      "notes": "Notes",
+      "index": "Index",
+      "rest": "Local REST API"
+    },
+    "values": {
+      "vaultUnknown": "Not detected yet",
+      "noteCount": "{count} notes",
+      "indexReady": "Ready · {notes} notes",
+      "indexMissing": "Not built",
+      "restReachable": "Reachable",
+      "restUnreachable": "Unreachable",
+      "restNotConfigured": "Not configured",
+      "restUnknown": "Unknown",
+      "unknown": "—"
+    },
+    "search": {
+      "label": "Quick filter",
+      "placeholder": "Filter notes by title or path…",
+      "count": "{count} of {total}",
+      "noResults": "No matching notes.",
+      "noNotes": "No note titles available yet.",
+      "openHint": "Open “{title}” in Obsidian"
+    },
+    "waiting": {
+      "title": "Waiting for Host data",
+      "body": "This panel reads vault status from {route}. The Host half does not serve it yet, so nothing is shown here instead of invented numbers."
+    },
+    "error": {
+      "title": "Could not read status",
+      "body": "The request failed ({reason}). The vault itself may still be fine — the panel only failed to read it."
+    },
+    "actions": {
+      "refresh": "Refresh",
+      "refreshing": "Refreshing…"
+    },
+    "footer": {
+      "updatedAt": "Updated {time}",
+      "never": "never"
+    }
+  }
+}

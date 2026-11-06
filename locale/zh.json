@@ -1,0 +1,56 @@
+{
+  "meta": {
+    "title": "Obsidian 知识库中枢",
+    "description": "把本地 Obsidian 知识库接入 DeepSeek Harness：读、写、批量操作、BM25/正则/标签/双链快速查询、文件系统操作，并通过 Local REST API 实时操作 Obsidian 应用。"
+  },
+  "panel": {
+    "title": "Obsidian 知识库中枢",
+    "status": {
+      "connected": "已连接",
+      "waiting": "等待数据",
+      "error": "不可用",
+      "loading": "加载中…"
+    },
+    "fields": {
+      "vault": "知识库",
+      "notes": "笔记",
+      "index": "索引",
+      "rest": "本地 REST API"
+    },
+    "values": {
+      "vaultUnknown": "尚未检测到",
+      "noteCount": "{count} 篇",
+      "indexReady": "已就绪 · {notes} 篇",
+      "indexMissing": "尚未建立",
+      "restReachable": "可访问",
+      "restUnreachable": "不可访问",
+      "restNotConfigured": "未配置",
+      "restUnknown": "未知",
+      "unknown": "—"
+    },
+    "search": {
+      "label": "快速筛选",
+      "placeholder": "按标题或路径筛选笔记…",
+      "count": "{count}/{total}",
+      "noResults": "没有匹配的笔记。",
+      "noNotes": "暂无可用的笔记标题。",
+      "openHint": "在 Obsidian 中打开「{title}」"
+    },
+    "waiting": {
+      "title": "等待 Host 数据",
+      "body": "面板通过 {route} 读取知识库状态；Host 端尚未提供该接口，因此这里显示等待状态，而不是编造数据。"
+    },
+    "error": {
+      "title": "无法读取状态",
+      "body": "请求失败（{reason}）。知识库本身可能仍然正常，只是面板没能读到。"
+    },
+    "actions": {
+      "refresh": "刷新",
+      "refreshing": "刷新中…"
+    },
+    "footer": {
+      "updatedAt": "更新于 {time}",
+      "never": "从未"
+    }
+  }
+}

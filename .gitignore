@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build / release artifacts
+dist/
+*.zip
+*.tgz
+
+# logs & scratch
+*.log
+*.tmp
+npm-debug.log*
+pnpm-debug.log*
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# local captures / screenshots
+shots/
+captures/

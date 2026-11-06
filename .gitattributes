@@ -1,0 +1,9 @@
+# Normalize text for GitHub, but force CRLF on PowerShell scripts so they run
+# on Windows no matter how the clone was made (eol=crlf wins over eol=lf below).
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.png binary
+*.jpg binary
+*.zip binary
