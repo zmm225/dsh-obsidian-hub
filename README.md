@@ -51,6 +51,12 @@ Obsidian **没有公开的账户 API、Sync API、Publish API**。任何声称�
 plugin_manager({ action: "install_bundle", target: "github:zmm225/dsh-obsidian-hub" })
 ```
 
+固定版本（推荐给别人时用，避免上游一改就变）：
+
+```
+plugin_manager({ action: "install_bundle", target: "github:zmm225/dsh-obsidian-hub#v1.0.0" })
+```
+
 或者先 clone / 解压到本地目录，再装本地路径：
 
 ```
